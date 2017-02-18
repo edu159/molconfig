@@ -97,7 +97,7 @@ class MTSystemWriter:
     def _write_molecules(self):
         m = 0
         for mol in self.molecules:
-            self.lines.append('mol' + str(m) + ' = ' + mol[0].name + '[%d]' % mol[1] + '\n')
+            self.lines.append('mol' + str(m) + ' = new ' + mol[0].name + '[%d]' % mol[1] + '\n')
             m += 1
 
     def _write_box(self):
@@ -153,7 +153,7 @@ class MTMolWriter:
                           X        Y          Z\n')
         self.lines.append("  write('Data Atoms') {\n")
         for atom in self.mol_model.atom:
-            atom_col = '    $atom:' + str(atom.index)
+            atom_col = '    $atom:' + str(atom.index-1)
             mol_col = '$mol:.'
             atomid_col = '@atom:' + self.pymol_cmd._index_from_name(atom.name)
             charge_col = '0.0'
@@ -184,7 +184,7 @@ class MTMolWriter:
     	self.mol_model = self.pymol_cmd.get_molecule_model()
         self.model_atom_types = get_model_atom_types(self.mol_model)
         self._write_header()
-        self.lines.append(self.mol_name.title() + ' inherits ' +
+        self.lines.append(self.mol_name + ' inherits ' +
                           self.potential + '{\n')
         self._write_data_atoms()
         self._write_data_bonds()

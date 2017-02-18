@@ -44,7 +44,7 @@ class CMDListener(Process):
 
     def run(self):
         import __main__
-        __main__.pymol_argv = ['pymol','-q'] # Pymol: quiet and no GUI
+        __main__.pymol_argv = ['pymol','-qxi'] # Pymol: quiet and no GUI
         reload(pymol)
         pymol.finish_launching()
         while True:

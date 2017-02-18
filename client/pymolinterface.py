@@ -20,6 +20,13 @@ class PymolInterface:
             choice = random.choice(self.cmd.get_color_indices())
         return choice
 
+    def toggle_name(self, option):
+        if option == "name":
+            self.cmd.label("all", "name")
+        else:
+            self.cmd.label("all", "elem")
+
+
     # Move style-related calls to outside and create _optimize() function
     def optimize_molecule_geometry (self, selection='all', forcefield='MMFF94s', method='steepest-descent', nsteps1= 1000, conv=0.000001, cutoff=False, cut_vdw=4.0, cut_elec=8.0):
         #TODO: Do this before, when the molecule is downloaded
@@ -162,8 +169,8 @@ class PymolInterface:
     def get_molecule_name(self):
         return self.cmd.get_names()[0]
 
-    @staticmethod
-    def _index_from_name(at_name):
+    @classmethod
+    def _index_from_name(self, at_name):
         ret = ""
         try:
             ret = at_name.split("(")[1].split(")")[0]
@@ -179,7 +186,7 @@ class PymolInterface:
         atomname_list = list(set(re.findall("[a-zA-Z]+\([0-9a-zA-Z]+\)|[a-zA-Z]+", cond)))
         
         for at_name in atomname_list:
-            index = _index_from_name(at_name)
+            index = self._index_from_name(at_name)
             if index == "":
                 var_name = at_name
             else:

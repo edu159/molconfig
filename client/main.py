@@ -157,9 +157,13 @@ class MoleculeDb:
         d = molecule.__dict__
         # Save every attribute except the image. It can be get by a
         # predefined path.
+        name = molecule.name.encode('ascii', 'ignore')
         attr_dict = dict((i, d[i]) for i in d if i != 'image')
-        self.db[molecule.name.encode('ascii', 'ignore')] = attr_dict
-        self.db.sync()
+        if self.db.has_key(name):
+            raise Exception("Molecule already in the database.")
+        else:
+            self.db[name] = attr_dict
+            self.db.sync()
 
     def del_molecule(self, mol_name):
         del self.db[mol_name.encode('ascii', 'ignore')]
@@ -193,39 +197,57 @@ class MoleculesDbTab(ToolBookTab):
 
         self.addButton.Bind(wx.EVT_BUTTON, self.onAddButton)
         self.delButton.Bind(wx.EVT_BUTTON, self.onDelButton)
-        # Publisher
+        # Subscriber
         pub.subscribe(self._onMoleculeAdded, 'molecule.added')
 
  
+
+    def _onMoleculeAdded(self, message):
+        molecule = message.data
+        molecule_added = True
+        if molecule is not None:
+            try:
+                self.moldb.add_molecule(molecule)
+            except Exception as e:
+                print e
+                molecule_added = False
+       
+        if not molecule_added:
+            diag_message = "Molecule '%s' already exists. Do you want to overwrite it?" % molecule.name
+            ok_dialog = wx.MessageDialog(None,  diag_message, caption="Save molecule",
+                style=wx.YES_NO|wx.STAY_ON_TOP|wx.NO_DEFAULT|wx.ICON_EXCLAMATION)
+            if ok_dialog.ShowModal() == wx.ID_YES:
+                self.moldb.del_molecule(molecule.name)
+                self.moldb.add_molecule(molecule)
+                item = self.list_ctrl.FindItem(-1, molecule.name.lower())
+                self.list_ctrl.DeleteItem(item)
+                self.list_ctrl.add_molecules(molecule)
+                self.molDefWindow.Close()
+            ok_dialog.Destroy()
+        else:
+            self.list_ctrl.add_molecules(molecule)
+            self.molDefWindow.Close()
+
+
     def onAddButton(self, event):
         self.molDefWindow = MoleculeDefWindow()
         self.molDefWindow.Show()
 
     def onDelButton(self, event):
         items = self.list_ctrl.get_selected_items()
-        mol_names =  [self.list_ctrl.GetItemText(i).lower() for i in items]
-        ok_dialog = wx.MessageDialog(None, "Do you want to delete '" + "', '".join(mol_names) + "'?", caption="Delete molecule", style=wx.YES_NO|wx.STAY_ON_TOP|wx.NO_DEFAULT|wx.ICON_EXCLAMATION)
-        if ok_dialog.ShowModal() == wx.ID_YES:
-            for mol_name  in mol_names:
-                try:
-                    self.moldb.del_molecule(mol_name)
-                    print mol_name.title() + " deleted!"
-                except:
-                    pass
-                item = self.list_ctrl.FindItem(-1, mol_name.lower())
-                self.list_ctrl.DeleteItem(item)
-        ok_dialog.Destroy()
-
-
-
-
-
-    def _onMoleculeAdded(self, message):
-        molecule = message.data
-        if molecule is not None:
-            self.moldb.add_molecule(molecule)
-        self.list_ctrl.add_molecules(molecule)
-        print "Added " + molecule.name
+        if items:
+            mol_names =  [self.list_ctrl.GetItemText(i).lower() for i in items]
+            ok_dialog = wx.MessageDialog(None, "Do you want to delete '" + "', '".join(mol_names) + "'?", caption="Delete molecule", style=wx.YES_NO|wx.STAY_ON_TOP|wx.NO_DEFAULT|wx.ICON_EXCLAMATION)
+            if ok_dialog.ShowModal() == wx.ID_YES:
+                for mol_name  in mol_names:
+                    try:
+                        self.moldb.del_molecule(mol_name)
+                        print mol_name.title() + " deleted!"
+                    except:
+                        pass
+                    item = self.list_ctrl.FindItem(-1, mol_name.lower())
+                    self.list_ctrl.DeleteItem(item)
+            ok_dialog.Destroy()
 
 
 
@@ -338,9 +360,11 @@ class ConfigTab(ToolBookTab):
         self.del_btn.Bind(wx.EVT_BUTTON, self.onDelButton)
         self.add_btn.Bind(wx.EVT_BUTTON, self.onAddButton)
         self.gen_btn.Bind(wx.EVT_BUTTON, self.onGenerateConfig)
+        self.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.onTabChanged)
 
-        # Sucribber
-        pub.subscribe(self._onMoleculeAdded, 'molecule.added')
+
+    def onTabChanged(self, event):
+        print "CAMBIO"
 
     def onDelButton(self, event):
         self.list_ctrl._fix_cursor()
@@ -349,12 +373,6 @@ class ConfigTab(ToolBookTab):
         for mol_name in mol_names:
             item = self.list_ctrl.FindItem(-1, mol_name.lower())
             self.list_ctrl.DeleteItem(item)
-
-    def _onMoleculeAdded(self, message):
-        molecule = message.data
-        if molecule is not None:
-            self.moldb.add_molecule(molecule)
-        self.mol_list_ctrl.add_molecules(molecule)
 
 
     def onAddButton(self, event):
@@ -381,26 +399,37 @@ class ConfigTab(ToolBookTab):
             print "Box length values are not well formated!"
             return
 
-        while 1:
-            item = self.list_ctrl.GetNextItem(item,
-                            wx.LIST_NEXT_ALL,
-                            wx.LIST_STATE_DONTCARE)
+        if (lx == 0.0 or ly == 0.0 or lz == 0.0):
+            print "Box dimensions have to be greater than 0.0!"
+            return
 
-            if item == -1:
-                break
+        if self.list_ctrl.GetItemCount() > 0:
+            while 1:
+                item = self.list_ctrl.GetNextItem(item,
+                                wx.LIST_NEXT_ALL,
+                                wx.LIST_STATE_DONTCARE)
 
-            mol_name =  self.list_ctrl.GetItemText(item).lower()
-            mol_number = self.list_ctrl.GetItem(item, 2).GetText()
-            molecule = self.moldb.get_molecule(mol_name)
-            molecules.append((molecule, int(mol_number)))
+                if item == -1:
+                    break
 
-        box_dims =  [(0.0, lx ), (0.0, ly), (0.0, lz)]
-        conf_writer = moltempio.MTSystemWriter(box_dims, molecules)
-        conf_writer.build_system_file()
-        conf_writer.save()
-        sys_writer_packmol = moltempio.PackmolSystemWriter(box_dims, molecules)
-        sys_writer_packmol.build_system_file()
-        sys_writer_packmol.save()
+                mol_name =  self.list_ctrl.GetItemText(item).lower()
+                mol_number = self.list_ctrl.GetItem(item, 2).GetText()
+                if int(mol_number) == 0:
+                    print "Specify the number of %s molecules." % mol_name
+                    return
+                molecule = self.moldb.get_molecule(mol_name)
+                molecules.append((molecule, int(mol_number)))
+
+            box_dims =  [(0.0, lx ), (0.0, ly), (0.0, lz)]
+            conf_writer = moltempio.MTSystemWriter(box_dims, molecules)
+            conf_writer.build_system_file()
+            conf_writer.save()
+            sys_writer_packmol = moltempio.PackmolSystemWriter(box_dims, molecules)
+            sys_writer_packmol.build_system_file()
+            sys_writer_packmol.save()
+            print "System files generated!"
+        else:
+            print "Molecule list empty! -- Add some molecules."
 
 
 class PotentialAtomsListCtrl(wx.ListCtrl): 
@@ -780,6 +809,7 @@ class MoleculeDefWindow(wx.Frame):
         font = wx.Font(9, wx.DEFAULT, wx.NORMAL, wx.FONTWEIGHT_LIGHT)
         self.expr_atomtype_tbox.SetFont(font)
         self.mol_atomtype_tbox.SetFont(font)
+        self.toggle_name = wx.CheckBox(panel, -1, "Toggle names")
 
 
         # Separators 
@@ -817,6 +847,7 @@ class MoleculeDefWindow(wx.Frame):
         topRightHalfSizer.AddStretchSpacer()
         topRightHalfSizer.Add(self.optimizeBtn, 0, wx.TOP | wx.ALIGN_BOTTOM, 5)
         topRightHalfSizer.Add(self.optimizeGlobalBtn, 0, wx.TOP | wx.ALIGN_BOTTOM, 5)
+        topRightHalfSizer.Add(self.toggle_name, 0, wx.TOP | wx.ALIGN_BOTTOM, 5)
         topHalfSizer = wx.BoxSizer(wx.HORIZONTAL)
         topHalfSizer.Add(self.mol_display.bitmap_panel,0 , wx.ALL, 5)
         topHalfSizer.Add(topRightHalfSizer, 1, wx.ALL|wx.EXPAND, 5)
@@ -884,6 +915,7 @@ class MoleculeDefWindow(wx.Frame):
         self.typeBox.Bind(wx.EVT_COMBOBOX, self._onMolTypeBox)
         self.closeBtn.Bind(wx.EVT_BUTTON, self.onCloseBtn)
         self.Bind(wx.EVT_CLOSE, self.onClose)
+        self.toggle_name.Bind(wx.EVT_CHECKBOX, self.onToggle)
 
         # Subscriptions to the publisher
         pub.subscribe(self._onMoleculeSelected, 'molecule.selected')
@@ -893,12 +925,19 @@ class MoleculeDefWindow(wx.Frame):
         pub.subscribe(self._closedPymol, 'pymol.close')
 
 
+    def onToggle(self, event):
+        if self.pymol_cmd is not None:
+            if self.toggle_name.IsChecked():
+                self.pymol_cmd.toggle_name("elem")
+            else:
+                self.pymol_cmd.toggle_name("name")
 
     def onClose(self,e):
         if self.pymol_cmd is not None:
-            self.close_action = "PYMOL_DESTROY"
+            self.close_action = "PYMOL_CLOSE"
             self.pymol_cmd.shutdown()
-        self.Destroy()
+        else:
+            self.Destroy()
 
     def onCloseBtn(self,e):
         self.Close()
@@ -988,12 +1027,14 @@ class MoleculeDefWindow(wx.Frame):
             if self.close_action != "PYMOL_DESTROY":
                 self.close_action = "";
                 wx.CallAfter(pub.sendMessage, 'pymol.close')
+            self.close_action = "";
 
         thread = threading.Thread(target=check_pymol_alive, args=(self.pymol_cmd.cmd.pymol_process,))
         thread.start()
         self.mol_atomtypes = moltempio.get_model_atom_types(self.pymol_cmd.get_molecule_model())
         self.mol_atomtype_tbox.Clear()
         self.select_pot_atom_label.SetLabel("")
+        self.expr_atomtype_tbox.SetDescriptiveText("Expression...")
         self.selected_pot_atom = None
         self.typeBox.SetValue("Molecule")
         self.mol_atomtype_tbox.AppendItems(self.mol_atomtypes)
@@ -1010,8 +1051,6 @@ class MoleculeDefWindow(wx.Frame):
             mol_writer.save()
             self.pymol_cmd.save_molecule(self.current_molecule.name + '.pdb')
             pub.sendMessage('molecule.added', self.current_molecule)
-            self.pymol_cmd.shutdown()
-            self.Close()
         else:
             print "There is no molecule loaded!"
 
